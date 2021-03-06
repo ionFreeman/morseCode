@@ -10,12 +10,18 @@ import java.io.InputStream
 import java.nio.file.Path
 import scala.collection.IterableOnce.iterableOnceExtensionMethods
 import scala.io.Source
+
 /**
  * Implement the ITU standard with javax sound
  * based on https://en.wikipedia.org/wiki/Morse_code
  *
  */
-object Morse {
+case class Morse(charToCode: Map[Char, String]) {
+  charToCode foreach ((mpg) => {
+    val dotsdashes = mpg._2
+    require(dotsdashes.nonEmpty, s"Character ${mpg._1} is mapped to the empty string")
+    dotsdashes.foreach(dotdash => require(Set('.', '-').contains(dotdash), s"Character ${mpg._1} mapping $dotsdashes contains illegal character $dotdash"))
+  })
 
   // funny story... we don't need this function
   def getDeviceAndWhetherWasOpen: (MidiDevice, Boolean) = {
@@ -67,21 +73,8 @@ object Morse {
 
   def space = silenceForMilliseconds(7 * DOT_LENGTH)
 
-  val charToCode = (for {
-    charMappings: Iterator[String] <- getResource("/morseCode.dat")
-  } yield
-    (for (charMapping <- charMappings.toList if charMapping.trim.nonEmpty) yield (charMapping.head.toUpper, charMapping.tail.span(Set('\t', ' ').contains)._2)
-      ).filterNot(_._1 == '#')) match {
-    case None => // build enough in for an SOS
-      Map(
-        ('S', "..."),
-        ('O', "---")
-      )
-    case Some(mapping: List[(Char, String)]) => mapping.toMap
-  }
-
   @tailrec
-  def playTones(tones: List[Char]): Unit = tones match {
+  final def playTones(tones: List[Char]): Unit = tones match {
     case Nil =>
       ()
     case head :: tail => head match {
@@ -92,28 +85,46 @@ object Morse {
   }
 
   def charToMorse(char: Char): Unit = {
-    val tones = char match {
+    char.toUpper match{
       case ' ' => space
-      case _ => playTones(charToCode(char.toUpper).toList)
+      case upper if charToCode.keySet.contains(upper) => playTones(charToCode(upper).toList)
+      case _ => ()
     }
   }
 
+  /**
+   * Plays the tones for each character in the string for which it has a mapping
+   * @param encodable The string to convert
+   */
   def toMorse(encodable: LazyList[Char]): LazyList[Unit] = {
     encodable match {
       case empty if empty.isEmpty => LazyList.empty
       case last #:: LazyList() => LazyList(charToMorse(last))
       case head #:: tail =>
-        val play: Unit = charToMorse(head)
-        play #:: gap #:: toMorse(tail)
+        charToMorse(head) #:: gap #:: toMorse(tail)
     }
   }
 
-  def translateToMorse(encodable: String):List[Unit] = {
+  def translateToMorse(encodable: String): List[Unit] = {
     val translation = toMorse(encodable = LazyList.from(encodable)).toList
     Thread.sleep(14 * DOT_LENGTH)
     translation
   }
-
-
 }
 
+object Morse {
+  def loadMapping(resourceName: String): Map[Char, String] = {
+    (for (charMappings: Iterator[String] <- getResource("/morseCode.dat")) yield for {
+      charMapping <- charMappings if charMapping.trim.nonEmpty
+      entry = (charMapping.head.toUpper, charMapping.tail.span(Set('\t', ' ').contains)._2) if entry._1 != '#'
+    } yield entry) match {
+      case None => // build enough in for an SOS
+        Map(
+          ('S', "..."),
+          ('O', "---")
+        )
+      case Some(mapping) =>
+        mapping.toMap
+    }
+  }
+}
