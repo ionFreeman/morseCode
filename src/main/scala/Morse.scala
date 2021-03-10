@@ -16,44 +16,15 @@ import scala.io.Source
  * based on https://en.wikipedia.org/wiki/Morse_code
  *
  */
-case class Morse(charToCode: Map[Char, String]) {
+case class Morse(charToCode: Map[Char, String], dotLength:Int = 250) {
   charToCode foreach ((mpg) => {
     val dotsdashes = mpg._2
     require(dotsdashes.nonEmpty, s"Character ${mpg._1} is mapped to the empty string")
     dotsdashes.foreach(dotdash => require(Set('.', '-').contains(dotdash), s"Character ${mpg._1} mapping $dotsdashes contains illegal character $dotdash"))
   })
 
-  // funny story... we don't need this function
-  def getDeviceAndWhetherWasOpen: (MidiDevice, Boolean) = {
-    val devices: List[MidiDevice] = MidiSystem.getMidiDeviceInfo.toList.map(MidiSystem.getMidiDevice(_))
-    val devicesWithState = LazyList.from(devices)
-      .map(d => (d, d.isOpen))
-      .map((deviceWithState) => (deviceWithState._1, deviceWithState._2, Try {
-        if (!deviceWithState._2) deviceWithState._1.open
-      }))
-      .filter(_._3.isSuccess)
-      .map(a => (a._1, a._2))
-
-    if (devicesWithState.isEmpty) throw new IllegalStateException("No available devices")
-    devicesWithState.head
-  }
-
-  def sendShortMessage(receiver: Receiver = MidiSystem.getReceiver)(message: Int, channel: Int = 0, tone: Int = 60, keyVelocity: Int = 93) = {
-    receiver.send(new ShortMessage(message, channel, tone, keyVelocity), -1)
-  }
-
-  def toneForMilliseconds(dure: Int) = {
-    sendShortMessage()(ShortMessage.NOTE_ON)
-    Thread.sleep(dure)
-    sendShortMessage()(ShortMessage.NOTE_OFF)
-  }
-
-  def silenceForMilliseconds(dure: Int) = {
-    sendShortMessage()(ShortMessage.NOTE_OFF)
-    Thread.sleep(dure)
-    sendShortMessage()(ShortMessage.NOTE_OFF)
-  }
-
+  val tone = Tone()
+  import tone._
   /**
    * International Morse code is composed of five elements:[1]
    *
@@ -63,15 +34,13 @@ case class Morse(charToCode: Map[Char, String]) {
    * short gap (between letters): three time units long
    * medium gap (between words): seven time units long
    */
-  val DOT_LENGTH = 250
+  def dash = toneForMilliseconds(3 * dotLength)
 
-  def dash = toneForMilliseconds(3 * DOT_LENGTH)
+  def dot = toneForMilliseconds(dotLength)
 
-  def dot = toneForMilliseconds(DOT_LENGTH)
+  def gap = silenceForMilliseconds(3 * dotLength)
 
-  def gap = silenceForMilliseconds(3 * DOT_LENGTH)
-
-  def space = silenceForMilliseconds(7 * DOT_LENGTH)
+  def space = silenceForMilliseconds(7 * dotLength)
 
   @tailrec
   final def playTones(tones: List[Char]): Unit = tones match {
@@ -107,7 +76,7 @@ case class Morse(charToCode: Map[Char, String]) {
 
   def translateToMorse(encodable: String): List[Unit] = {
     val translation = toMorse(encodable = LazyList.from(encodable)).toList
-    Thread.sleep(14 * DOT_LENGTH)
+    Thread.sleep(14 * dotLength)
     translation
   }
 }
